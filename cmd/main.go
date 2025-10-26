@@ -95,7 +95,7 @@ func main() {
 
 	setupLogger := logger.WithName("setup")
 
-	setupLogger.Info("Creating manager", "version", Version, "git commit", GitCommit, "build tag", BuildTag)
+	setupLogger.Info("gsm v2 Oct25 Creating manager", "version", Version, "git commit", GitCommit, "build tag", BuildTag)
 
 	setupLogger.Info("Parsing configuration file", "path", configFile)
 

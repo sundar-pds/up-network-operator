@@ -35,29 +35,16 @@ KMM_OPERATOR_IMG_NAME ?= $(DOCKER_REGISTRY)/kernel-module-management-operator
 # by default, helm charts version is same as project version
 # unless in the hourly build where we may put hourly build tag in the helm charts version
 HELM_CHARTS_VERSION ?= $(PROJECT_VERSION)
-YAML_FILES=bundle/manifests/amd-network-operator-node-metrics_rbac.authorization.k8s.io_v1_rolebinding.yaml bundle/manifests/amd-network-operator.clusterserviceversion.yaml bundle/manifests/amd-network-operator-node-labeller_rbac.authorization.k8s.io_v1_clusterrolebinding.yaml bundle/manifests/amd-network-operator-node-metrics_monitoring.coreos.com_v1_servicemonitor.yaml config/samples/amd.com_networkconfigs.yaml config/manifests/bases/amd-network-operator.clusterserviceversion.yaml example/networkconfig.yaml config/default/kustomization.yaml
+YAML_FILES=config/samples/amd.com_networkconfigs.yaml config/manifests/bases/amd-network-operator.clusterserviceversion.yaml example/networkconfig.yaml config/default/kustomization.yaml
 CRD_YAML_FILES = networkconfig-crd.yaml
 K8S_KMM_CRD_YAML_FILES=module-crd.yaml nodemodulesconfig-crd.yaml
-OPENSHIFT_KMM_CRD_YAML_FILES=module-crd.yaml nodemodulesconfig-crd.yaml
-OPENSHIFT_CLUSTER_NFD_CRD_YAML_FILES=nodefeature-crd.yaml nodefeaturediscovery-crd.yaml nodefeaturerule-crd.yaml noderesourcetopology-crd.yaml
 
-ifdef OPENSHIFT
-$(info selected openshift)
-NETWORK_OPERATOR_CHART ?= ./helm-charts-openshift/network-operator-helm-openshift-$(PROJECT_VERSION).tgz
-KUBECTL_CMD=oc
-HELM_OC_CMD=--set platform=openshift
-else
 NETWORK_OPERATOR_CHART ?= ./helm-charts-k8s/network-operator-helm-k8s-$(PROJECT_VERSION).tgz
 $(info selected k8s)
 KUBECTL_CMD=kubectl
-endif
 
 ifdef SKIP_NFD
-	ifdef OPENSHIFT
-		SKIP_NFD_CMD=--set nfd.enabled=false
-	else
-		SKIP_NFD_CMD=--set node-feature-discovery.enabled=false
-	endif
+	SKIP_NFD_CMD=--set node-feature-discovery.enabled=false
 endif
 
 ifdef SKIP_KMM
@@ -69,33 +56,6 @@ ifdef SIM_ENABLE
 endif
 
 #################################
-# OpenShift OLM Bundle varaiables
-# BUNDLE_IMG defines the image:tag used for the bundle.
-# You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
-BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:$(PROJECT_VERSION)
-INDEX_IMG := $(IMAGE_TAG_BASE)-index:$(PROJECT_VERSION)
-BUNDLE_NAMESPACE ?= default # the namespace to deploy the OLM bundle 
-
-# Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
-# To re-generate a bundle for other specific channels without changing the standard setup, you can:
-# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=candidate,fast,stable)
-# - use environment variables to overwrite this value (e.g export CHANNELS="candidate,fast,stable")
-ifneq ($(origin CHANNELS), undefined)
-	BUNDLE_CHANNELS := --channels=$(CHANNELS)
-endif
-
-# DEFAULT_CHANNEL defines the default channel used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
-# To re-generate a bundle for any other default channel without changing the default setup, you can:
-# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
-# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
-ifneq ($(origin DEFAULT_CHANNEL), undefined)
-	BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
-endif
-
-BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
-# BUNDLE_GEN_FLAGS are the flags passed to the operator-sdk generate bundle command
-BUNDLE_GEN_FLAGS ?= -q --overwrite --version $(shell echo $(PROJECT_VERSION) | sed 's/^v//') $(BUNDLE_METADATA_OPTS)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
@@ -168,15 +128,12 @@ help: ## Display this help.
 .PHONY: update-registry
 update-registry: ## Update all image URLs based on the image variables
 	# updating registry information in yaml files
-	sed -i -e 's|image:.*$$|image: ${IMG}|' bundle/manifests/amd-network-operator.clusterserviceversion.yaml
 	sed -i -e 's|repository:.*$$|repository: ${IMAGE_TAG_BASE}|' \
-	hack/k8s-patch/metadata-patch/values.yaml \
-	hack/openshift-patch/metadata-patch/values.yaml
+	hack/k8s-patch/metadata-patch/values.yaml
 	sed -i -e "s/newTag:.*$$/newTag: ${IMAGE_TAG}/" -e "s/tag:.*$$/tag: ${IMAGE_TAG}/" \
 	-e 's|newName:.*$$|newName: ${IMAGE_TAG_BASE}|' \
 	config/manager-base/kustomization.yaml config/manager/kustomization.yaml \
 	hack/k8s-patch/metadata-patch/values.yaml helm-charts-k8s/values.yaml \
-	hack/openshift-patch/metadata-patch/values.yaml helm-charts-openshift/values.yaml \
 	example/networkconfig.yaml
 	sed -i -e 's|tag:.*$$|tag: ${KMM_IMAGE_TAG}|' \
 	-e 's|repository:.*operator.*$$|repository: ${KMM_OPERATOR_IMG_NAME}|' \
@@ -191,13 +148,6 @@ update-version: ## Update the Project version in helm charts based on ${PROJECT_
 	# updating project version in manifests
 	sed -i -e 's|appVersion:.*$$|appVersion: ${IMAGE_TAG}|' hack/k8s-patch/metadata-patch/Chart.yaml
 	sed -i '0,/version:/s|version:.*|version: ${HELM_CHARTS_VERSION}|' hack/k8s-patch/metadata-patch/Chart.yaml
-	sed -i -e 's|appVersion:.*$$|appVersion: ${IMAGE_TAG}|' hack/openshift-patch/metadata-patch/Chart.yaml
-	sed -i '0,/version:/s|version:.*|version: ${HELM_CHARTS_VERSION}|' hack/openshift-patch/metadata-patch/Chart.yaml
-	# updating project version in CI job config
-	sed -i -e 's|PROJECT_VERSION=[^ ]*|PROJECT_VERSION=${PROJECT_VERSION}|' .job.yml
-	sed -i 's|network-operator-helm-k8s-[^$$].*\.tgz|network-operator-helm-k8s-${HELM_CHARTS_VERSION}.tgz|' .job.yml
-	sed -i 's|network-operator-helm-openshift-.*\.tgz|network-operator-helm-openshift-${HELM_CHARTS_VERSION}.tgz|' .job.yml
-	sed -i 's|PROJECT_VERSION:-.*$$|PROJECT_VERSION:-${PROJECT_VERSION}\}|' asset-build/networkoperator-asset-push.sh
 
 .PHONY: manifests
 manifests: controller-gen update-registry update-version ## Generate ClusterRole and CustomResourceDefinition objects.
@@ -262,7 +212,6 @@ helm-e2e: ## Run the helm chart e2e tests.
 	export SIM_ENABLE
 	NETWORK_OPERATOR_CHART=../../${NETWORK_OPERATOR_CHART} ${MAKE} -C tests/helm-e2e
 
-.PHONY: dcm_e2e
 dcm_e2e:
 	$(info deploying ${NETWORK_OPERATOR_CHART})
 	${MAKE} helm-install
@@ -409,61 +358,6 @@ operator-sdk: ## Download operator-sdk locally if necessary
 		chmod +x ${OPERATOR_SDK}; \
 	fi
 
-.PHONY: bundle-build
-bundle-build: operator-sdk manifests kustomize
-	rm -fr ./bundle
-	VERSION=$(shell echo $(PROJECT_VERSION) | sed 's/^v//') ${OPERATOR_SDK} generate kustomize manifests --apis-dir api
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	cd config/manager-base && $(KUSTOMIZE) edit set image controller=$(IMG)
-	OPERATOR_SDK="${OPERATOR_SDK}" \
-		     BUNDLE_GEN_FLAGS="${BUNDLE_GEN_FLAGS} --extra-service-accounts amd-network-operator-device-plugin,amd-network-operator-kmm-module-loader,amd-network-operator-node-labeller,amd-network-operator-metrics-exporter,amd-network-operator-metrics-exporter-rbac-proxy,amd-network-operator-test-runner,amd-network-operator-config-manager,amd-network-operator-utils-container" \
-		     PKG=amd-network-operator \
-		     SOURCE_DIR=$(dir $(realpath $(lastword $(MAKEFILE_LIST)))) \
-		     KUBECTL_CMD=${KUBECTL_CMD} ./hack/generate-bundle
-	${OPERATOR_SDK} bundle validate ./bundle
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
-
-.PHONY: bundle-push
-bundle-push:
-	docker push $(BUNDLE_IMG)
-
-.PHONY: bundle-save
-bundle-save:
-	docker save $(BUNDLE_IMG) | gzip > $(IMAGE_NAME)-olm-bundle.tar.gz
-
-.PHONY: bundle-scorecard-test
-bundle-scorecard-test:
-	${OPERATOR_SDK} scorecard --config bundle/tests/scorecard/config.yaml --kubeconfig ~/.kube/config $(BUNDLE_IMG)
-
-.PHONY: bundle-deploy
-bundle-deploy:
-	${OPERATOR_SDK} run bundle $(BUNDLE_IMG) --namespace=${BUNDLE_NAMESPACE}
-
-.PHONY: bundle-deploy-upgrade
-bundle-deploy-upgrade:
-	${OPERATOR_SDK} run bundle-upgrade $(BUNDLE_IMG)
-
-.PHONY: bundle-cleanup
-bundle-cleanup:
-	${OPERATOR_SDK} cleanup amd-network-operator --namespace=${BUNDLE_NAMESPACE}
-
-.PHONY: opm
-OPM = ./bin/opm
-opm:
-	@if [ ! -f ${OPM} ]; then \
-                set -e ;\
-                echo "Downloading ${OPM}"; \
-                mkdir -p $(dir ${OPM}) ;\
-                curl -Lo ${OPM}.tar 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-linux.tar.gz'; \
-		tar -C $(dir ${OPM}) -xzf ${OPM}.tar; \
-                chmod +x ${OPM}; \
-		rm -f ${OPM}.tar; \
-        fi
-
-.PHONY: index
-index: opm
-	${OPM} index add --bundles ${BUNDLE_IMG} --tag ${INDEX_IMG}
-
 HELMIFY = $(shell pwd)/bin/helmify
 .PHONY: helmify
 helmify:
@@ -492,7 +386,6 @@ helm-k8s: helmify manifests kustomize clean-helm-k8s gen-kmm-charts-k8s
 	cp $(shell pwd)/hack/k8s-patch/metadata-patch/*.yaml $(shell pwd)/helm-charts-k8s/
 	# Patching k8s helm chart template
 	cp $(shell pwd)/hack/k8s-patch/template-patch/* $(shell pwd)/helm-charts-k8s/templates/
-	# Removing OpenShift related rbac from vanilla k8s helm charts
 	rm $(shell pwd)/helm-charts-k8s/templates/kmm-device-plugin-rbac.yaml
 	rm $(shell pwd)/helm-charts-k8s/templates/kmm-module-loader-rbac.yaml
 	# Patching k8s helm chart kmm subchart
@@ -512,34 +405,6 @@ helm-k8s: helmify manifests kustomize clean-helm-k8s gen-kmm-charts-k8s
 	cd $(shell pwd)/helm-charts-k8s; helm dependency update; helm lint; cd ..; helm package helm-charts-k8s/ --destination ./helm-charts-k8s
 	mv $(shell pwd)/helm-charts-k8s/network-operator-charts-$(HELM_CHARTS_VERSION).tgz $(shell pwd)/helm-charts-k8s/network-operator-helm-k8s-$(HELM_CHARTS_VERSION).tgz
 
-.PHONY: helm-openshift
-helm-openshift: helmify manifests kustomize clean-helm-openshift gen-nfd-charts-openshift gen-kmm-charts-openshift
-	$(KUSTOMIZE) build config/default | $(HELMIFY) helm-charts-openshift
-	# Patching openshift helm chart metadata
-	cp $(shell pwd)/hack/openshift-patch/metadata-patch/*.yaml $(shell pwd)/helm-charts-openshift/
-	# Patching openshift helm chart template
-	cp $(shell pwd)/hack/openshift-patch/template-patch/*.yaml $(shell pwd)/helm-charts-openshift/templates/
-	# Patching openshift helm chart nfd subchart
-	cp $(shell pwd)/hack/openshift-patch/openshift-nfd-patch/crds/* $(shell pwd)/helm-charts-openshift/charts/nfd/crds/
-	cp $(shell pwd)/hack/openshift-patch/openshift-nfd-patch/metadata-patch/* $(shell pwd)/helm-charts-openshift/charts/nfd/
-	# Patching openshift helm chart kmm subchart
-	cp $(shell pwd)/hack/openshift-patch/openshift-kmm-patch/template-patch/* $(shell pwd)/helm-charts-openshift/charts/kmm/templates/
-	cp $(shell pwd)/hack/openshift-patch/openshift-kmm-patch/metadata-patch/*.yaml $(shell pwd)/helm-charts-openshift/charts/kmm/
-	# opeartor already has device-plugin rbac yaml, removing the redundant rbac yaml from subchart
-	rm $(shell pwd)/helm-charts-openshift/charts/kmm/templates/device-plugin-rbac.yaml
-	# opeartor already has module-loader rbac yaml, removing the redundant rbac yaml from subchart
-	rm $(shell pwd)/helm-charts-openshift/charts/kmm/templates/module-loader-rbac.yaml
-	cd $(shell pwd)/helm-charts-openshift; helm dependency update; helm lint; cd ..;
-	mkdir $(shell pwd)/helm-charts-openshift/crds
-	echo "moving crd yaml files to crds folder"
-	@for file in $(CRD_YAML_FILES); do \
-		helm template amd-network helm-charts-openshift -s templates/$$file > $(shell pwd)/helm-charts-openshift/crds/$$file; \
-	done
-	rm $(shell pwd)/helm-charts-openshift/templates/*crd.yaml
-	echo "dependency update, lint and pack charts"
-	cd $(shell pwd)/helm-charts-openshift; helm dependency update; helm lint; cd ..; helm package helm-charts-openshift/ --destination ./helm-charts-openshift
-	mv $(shell pwd)/helm-charts-openshift/network-operator-charts-$(HELM_CHARTS_VERSION).tgz $(shell pwd)/helm-charts-openshift/network-operator-helm-openshift-$(HELM_CHARTS_VERSION).tgz
-
 .PHONY: helm-install
 helm-install:
 	if [ -z ${OPENSHIFT} ]; then \
@@ -556,16 +421,6 @@ helm-uninstall:
 		$(MAKE) helm-uninstall-openshift; \
 	fi
 
-helm-install-openshift:
-	helm install amd-network-operator ${NETWORK_OPERATOR_CHART} -n kube-amd-network --create-namespace ${SKIP_NFD_CMD} ${SKIP_KMM_CMD} ${HELM_OC_CMD} ${SIM_ENABLE_CMD}
-
-helm-uninstall-openshift:
-	echo "Deleting all CRs before uninstalling operator..."
-	${KUBECTL_CMD} delete networkconfigs.amd.com -n kube-amd-network --all
-	${KUBECTL_CMD} delete nodefeaturediscoveries.nfd.openshift.io -n kube-amd-network --all
-	echo "Uninstalling operator..."
-	helm uninstall amd-network-operator -n kube-amd-network
-
 helm-install-k8s:
 	helm install -f helm-charts-k8s/values.yaml amd-network-operator ${NETWORK_OPERATOR_CHART} -n kube-amd-network --create-namespace ${SKIP_NFD_CMD} ${SKIP_KMM_CMD} ${HELM_OC_CMD} ${SIM_ENABLE_CMD}
 
@@ -574,28 +429,6 @@ helm-uninstall-k8s:
 	${KUBECTL_CMD} delete networkconfigs.amd.com -n kube-amd-network --all
 	echo "Uninstalling operator..."
 	helm uninstall amd-network-operator -n kube-amd-network
-
-gen-nfd-charts-openshift:
-	rm -rf /tmp/nfd && git clone https://github.com/openshift/cluster-nfd-operator /tmp/nfd; cd /tmp/nfd; git checkout release-4.16
-	$(KUSTOMIZE) build /tmp/nfd/config/default | $(HELMIFY) helm-charts-openshift/charts/nfd
-	cp $(shell pwd)/hack/openshift-patch/openshift-nfd-patch/metadata-patch/Chart.yaml $(shell pwd)/helm-charts-openshift/charts/nfd/
-	mkdir helm-charts-openshift/charts/nfd/crds
-	@for file in $(OPENSHIFT_CLUSTER_NFD_CRD_YAML_FILES); do \
-		helm template amd-network helm-charts-openshift/charts/nfd -s templates/$$file > helm-charts-openshift/charts/nfd/crds/$$file; \
-	done
-	rm helm-charts-openshift/charts/nfd/templates/*crd.yaml
-	rm -rf /tmp/nfd
-
-gen-kmm-charts-openshift:
-	rm -rf /tmp/kmm && git clone https://github.com/rh-ecosystem-edge/kernel-module-management.git /tmp/kmm; cd /tmp/kmm; git checkout release-2.3
-	$(KUSTOMIZE) build /tmp/kmm/config/default | $(HELMIFY) helm-charts-openshift/charts/kmm
-	cp $(shell pwd)/hack/openshift-patch/openshift-kmm-patch/metadata-patch/Chart.yaml $(shell pwd)/helm-charts-openshift/charts/kmm/
-	mkdir helm-charts-openshift/charts/kmm/crds
-	@for file in $(OPENSHIFT_KMM_CRD_YAML_FILES); do \
-		helm template amd-network helm-charts-openshift/charts/kmm -s templates/$$file > helm-charts-openshift/charts/kmm/crds/$$file; \
-		rm helm-charts-openshift/charts/kmm/templates/$$file; \
-	done
-	rm -rf /tmp/kmm
 
 gen-kmm-charts-k8s:
 ifdef JOB_ID
@@ -618,9 +451,6 @@ cert-manager-install:
 cert-manager-uninstall:
 	helm uninstall cert-manager -n cert-manager
 	${KUBECTL_CMD} delete crd issuers.cert-manager.io clusterissuers.cert-manager.io certificates.cert-manager.io certificaterequests.cert-manager.io orders.acme.cert-manager.io challenges.acme.cert-manager.io
-
-clean-helm-openshift:
-	rm -rf $(shell pwd)/helm-charts-openshift
 
 clean-helm-k8s:
 	rm -rf $(shell pwd)/helm-charts-k8s

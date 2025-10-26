@@ -9,7 +9,7 @@ metadata:
   labels:
     app.kubernetes.io/component: amd-network
     app.kubernetes.io/part-of: amd-network
-    helm.sh/chart: network-operator-charts-v1.0.0
+    helm.sh/chart: network-operator-charts-v0.0.1
     app.kubernetes.io/name: network-operator-charts
     app.kubernetes.io/instance: amd-network
     app.kubernetes.io/version: "dev"
@@ -475,6 +475,12 @@ spec:
                             default: false
                             description: Force indicates if force draining is allowed
                             type: boolean
+                          gracePeriodSeconds:
+                            default: -1
+                            description: GracePeriodSeconds indicates the time kubernetes
+                              waits for a pod to shut down gracefully after receiving
+                              a termination signal
+                            type: integer
                           timeoutSeconds:
                             default: 300
                             description: TimeoutSecond specifies the length of time
@@ -492,6 +498,12 @@ spec:
                             default: false
                             description: Force indicates if force deletion is allowed
                             type: boolean
+                          gracePeriodSeconds:
+                            default: -1
+                            description: GracePeriodSeconds indicates the time kubernetes
+                              waits for a pod to shut down gracefully after receiving
+                              a termination signal
+                            type: integer
                           timeoutSeconds:
                             default: 300
                             description: TimeoutSecond specifies the length of time
